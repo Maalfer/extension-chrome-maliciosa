@@ -2,6 +2,12 @@
 
 Una extensión de Chrome desarrollada con fines educativos y éticos para demostrar cómo las extensiones pueden interactuar con datos introducidos por usuarios en formularios web.
 
+<img width="810" height="418" alt="imagen" src="https://github.com/user-attachments/assets/0564cead-d705-4214-84a7-bf9aa474c17b" />
+
+<img width="1152" height="623" alt="imagen" src="https://github.com/user-attachments/assets/32eff3b8-2098-4a5a-8434-130d908ecf7a" />
+
+
+
 ## ⚠️ Advertencia Importante
 
 **Esta extensión es únicamente para propósitos educativos y de investigación ética.** El uso de esta herramienta debe limitarse a:
